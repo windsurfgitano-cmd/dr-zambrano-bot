@@ -177,69 +177,79 @@ def send_voice(chat_id, audio_content):
     requests.post(url, files=files, data=data)
 
 
-def handler(request):
-    """🚀 Vercel serverless handler principal"""
-    if request.method == 'POST':
-        try:
-            data = json.loads(request.body)
+# ✅ FUNCIÓN PRINCIPAL PARA VERCEL
+def handler(event, context):
+    """🚀 Vercel serverless handler - AWS Lambda compatible"""
+    try:
+        # Parse request
+        if isinstance(event.get('body'), str):
+            body = json.loads(event['body'])
+        else:
+            body = event.get('body', {})
+        
+        method = event.get('requestContext', {}).get('http', {}).get('method', 'POST')
+        
+        if method != 'POST':
+            return {
+                'statusCode': 200,
+                'body': json.dumps('🏥 Dr. Oscar Zambrano - Pittsburgh Trauma Veterinary Center - ONLINE')
+            }
+        
+        if 'message' not in body:
+            return {'statusCode': 200, 'body': json.dumps('OK')}
+        
+        message = body['message']
+        chat_id = message['chat']['id']
+        
+        # 🎤 CASO 1: Audio
+        if 'voice' in message or 'audio' in message:
+            file_id = message.get('voice', {}).get('file_id') or message.get('audio', {}).get('file_id')
+            audio_url = get_telegram_file_url(file_id)
             
-            if 'message' not in data:
-                return {'statusCode': 200, 'body': 'OK'}
-            
-            message = data['message']
-            chat_id = message['chat']['id']
-            
-            # 🎤 CASO 1: Usuario envía Audio o Voice Note
-            if 'voice' in message or 'audio' in message:
-                file_id = message.get('voice', {}).get('file_id') or message.get('audio', {}).get('file_id')
-                audio_url = get_telegram_file_url(file_id)
+            if audio_url:
+                transcription = transcribe_audio(audio_url)
+                ai_response = get_gpt5_response(f"El colega dice por audio: {transcription}")
+                audio_response = generate_voice_response(ai_response)
                 
-                if audio_url:
-                    transcription = transcribe_audio(audio_url)
-                    ai_response = get_gpt5_response(f"El colega dice por audio: {transcription}")
-                    audio_response = generate_voice_response(ai_response)
-                    
-                    if audio_response:
-                        send_voice(chat_id, audio_response)
-                    else:
-                        send_message(chat_id, f"🎤 Transcripción: '{transcription}'\n\n{ai_response}")
+                if audio_response:
+                    send_voice(chat_id, audio_response)
                 else:
-                    send_message(chat_id, "No pude acceder al audio. Reintenta.")
+                    send_message(chat_id, f"🎤 '{transcription}'\n\n{ai_response}")
+            else:
+                send_message(chat_id, "No pude acceder al audio.")
+        
+        # 📸 CASO 2: Foto
+        elif 'photo' in message:
+            photo = message['photo'][-1]
+            file_id = photo['file_id']
+            image_url = get_telegram_file_url(file_id)
+            user_text = message.get('caption', 'Analiza esta imagen. ¿Qué observas? DDx?')
             
-            # 📸 CASO 2: Usuario envía Foto (Rx, eco, citología, etc.)
-            elif 'photo' in message:
-                photo = message['photo'][-1]
-                file_id = photo['file_id']
-                image_url = get_telegram_file_url(file_id)
-                user_text = message.get('caption', 'Analiza esta imagen. ¿Qué observas? DDx?')
-                
-                if image_url:
-                    ai_response = analyze_image_with_gpt5(image_url, user_text)
-                    send_message(chat_id, f"📸 {ai_response}")
-                else:
-                    send_message(chat_id, "No pude acceder a la imagen. Reintenta.")
+            if image_url:
+                ai_response = analyze_image_with_gpt5(image_url, user_text)
+                send_message(chat_id, f"📸 {ai_response}")
+            else:
+                send_message(chat_id, "No pude acceder a la imagen.")
+        
+        # 💬 CASO 3: Texto
+        elif 'text' in message:
+            user_message = message['text']
+            respond_with_voice = "/voz" in user_message.lower()
+            user_message = user_message.replace("/voz", "").replace("/VOZ", "").strip()
             
-            # 💬 CASO 3: Usuario envía Texto
-            elif 'text' in message:
-                user_message = message['text']
-                respond_with_voice = "/voz" in user_message.lower()
-                user_message = user_message.replace("/voz", "").replace("/VOZ", "").strip()
-                
-                ai_response = get_gpt5_response(user_message)
-                
-                if respond_with_voice:
-                    audio_response = generate_voice_response(ai_response)
-                    if audio_response:
-                        send_voice(chat_id, audio_response)
-                    else:
-                        send_message(chat_id, ai_response)
+            ai_response = get_gpt5_response(user_message)
+            
+            if respond_with_voice:
+                audio_response = generate_voice_response(ai_response)
+                if audio_response:
+                    send_voice(chat_id, audio_response)
                 else:
                     send_message(chat_id, ai_response)
-            
-            return {'statusCode': 200, 'body': 'OK'}
+            else:
+                send_message(chat_id, ai_response)
         
-        except Exception as e:
-            print(f"Error en handler: {e}")
-            return {'statusCode': 500, 'body': str(e)}
+        return {'statusCode': 200, 'body': json.dumps('OK')}
     
-    return {'statusCode': 200, 'body': '🏥 Dr. Oscar Zambrano - Pittsburgh Trauma Veterinary Center - ONLINE'}
+    except Exception as e:
+        print(f"Error: {e}")
+        return {'statusCode': 500, 'body': json.dumps(str(e))}
