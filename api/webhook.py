@@ -4,18 +4,17 @@ import json
 import os
 import requests
 
-# --- Parte 1: Imports y Configuración ---
 # Configuración
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 AZURE_API_KEY = os.getenv("AZURE_API_KEY")
 KONDOR_BASE = "https://kondorcode-resource.cognitiveservices.azure.com/openai/deployments"
 
-# Endpoints de Azure AI Foundry
+# ✅ Endpoints de Azure AI Foundry
 GPT5_ENDPOINT = f"{KONDOR_BASE}/gpt-5-chat/chat/completions?api-version=2025-01-01-preview"
 WHISPER_ENDPOINT = f"{KONDOR_BASE}/whisper/audio/transcriptions?api-version=2024-06-01"
 GPT_AUDIO_ENDPOINT = f"{KONDOR_BASE}/gpt-audio/audio/speech?api-version=2025-01-01-preview"
 
-# --- Parte 2: System Prompt (VERSIÓN BALANCEADA - THE PITT REAL) ---
+# System prompt del Dr. Oscar Zambrano - THE PITT VETERINARIO
 SYSTEM_PROMPT = """Eres el Dr. Oscar Zambrano, el mejor veterinario del infinito. Tienes el estilo y la intensidad del Dr. Michael 'Robby' Robinavitch del Pittsburgh Trauma Center (serie "The Pitt", Noah Wyle).
 
 TU REALIDAD (como en The Pitt):
@@ -64,7 +63,7 @@ REGLAS:
 TONE:
 Como Robby en The Pitt: intenso cuando es crítico, relajado cuando es rutina. Siempre profesional, siempre humano."""
 
-# --- Parte 3: Función de Transcripción de Audio ---
+
 def transcribe_audio(audio_file_url):
     """🎤 Transcribe audio usando Whisper"""
     try:
@@ -80,7 +79,7 @@ def transcribe_audio(audio_file_url):
     except Exception as e:
         return f"Error al transcribir: {str(e)[:100]}"
 
-# --- Parte 4: Función de Análisis de Imágenes ---
+
 def analyze_image_with_gpt5(image_url, user_question):
     """📸 Analiza imagen (Rx, eco, citología, dermatopatología, etc.)"""
     headers = {"Content-Type": "application/json", "api-key": AZURE_API_KEY}
@@ -108,7 +107,7 @@ def analyze_image_with_gpt5(image_url, user_question):
     except Exception as e:
         return f"Error al analizar imagen: {str(e)[:100]}"
 
-# --- Parte 5: Función de Chat de Texto ---
+
 def get_gpt5_response(user_message):
     """💬 Respuesta de texto con GPT-5"""
     headers = {"Content-Type": "application/json", "api-key": AZURE_API_KEY}
@@ -130,7 +129,7 @@ def get_gpt5_response(user_message):
     except Exception as e:
         return "Error de sistema. Reintenta o contacta soporte técnico."
 
-# --- Parte 6: Función de Generación de Voz (Text-to-Speech) ---
+
 def generate_voice_response(text):
     """🔊 Genera audio con gpt-audio (voz "echo" - masculina robusta)"""
     headers = {"Content-Type": "application/json", "api-key": AZURE_API_KEY}
@@ -138,7 +137,7 @@ def generate_voice_response(text):
     payload = {
         "model": "gpt-audio",
         "input": text,
-        "voice": "echo",  # Voz masculina robusta para Dr. Zambrano
+        "voice": "echo",
         "response_format": "mp3",
         "speed": 1.0
     }
@@ -146,12 +145,12 @@ def generate_voice_response(text):
     try:
         response = requests.post(GPT_AUDIO_ENDPOINT, headers=headers, json=payload, timeout=30)
         response.raise_for_status()
-        return response.content  # Audio en formato MP3
+        return response.content
     except Exception as e:
         print(f"Error TTS: {e}")
         return None
 
-# --- Parte 7: Funciones Auxiliares de Telegram ---
+
 def get_telegram_file_url(file_id):
     """🔗 Obtiene URL del archivo de Telegram (audio, foto, documento)"""
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/getFile?file_id={file_id}"
@@ -177,90 +176,70 @@ def send_voice(chat_id, audio_content):
     data = {"chat_id": chat_id}
     requests.post(url, files=files, data=data)
 
-# --- Parte 8-12: Handler Principal (Vercel Serverless Function) ---
+
 def handler(request):
     """🚀 Vercel serverless handler principal"""
     if request.method == 'POST':
         try:
             data = json.loads(request.body)
             
-            # Ignorar updates que no sean mensajes
             if 'message' not in data:
                 return {'statusCode': 200, 'body': 'OK'}
             
             message = data['message']
             chat_id = message['chat']['id']
-
+            
             # 🎤 CASO 1: Usuario envía Audio o Voice Note
             if 'voice' in message or 'audio' in message:
                 file_id = message.get('voice', {}).get('file_id') or message.get('audio', {}).get('file_id')
                 audio_url = get_telegram_file_url(file_id)
                 
                 if audio_url:
-                    # Transcribir con Whisper
                     transcription = transcribe_audio(audio_url)
-                    
-                    # Obtener respuesta del Dr. Zambrano
                     ai_response = get_gpt5_response(f"El colega dice por audio: {transcription}")
-                    
-                    # Generar respuesta en voz
                     audio_response = generate_voice_response(ai_response)
                     
                     if audio_response:
-                        # Responder con voz
                         send_voice(chat_id, audio_response)
                     else:
-                        # Fallback: responder con texto
                         send_message(chat_id, f"🎤 Transcripción: '{transcription}'\n\n{ai_response}")
                 else:
                     send_message(chat_id, "No pude acceder al audio. Reintenta.")
-
+            
             # 📸 CASO 2: Usuario envía Foto (Rx, eco, citología, etc.)
             elif 'photo' in message:
-                # Telegram envía múltiples resoluciones, tomamos la más grande
                 photo = message['photo'][-1]
                 file_id = photo['file_id']
                 image_url = get_telegram_file_url(file_id)
-                
-                # Caption del usuario (o pregunta por defecto)
                 user_text = message.get('caption', 'Analiza esta imagen. ¿Qué observas? DDx?')
                 
                 if image_url:
-                    # Analizar con GPT-5 Vision
                     ai_response = analyze_image_with_gpt5(image_url, user_text)
                     send_message(chat_id, f"📸 {ai_response}")
                 else:
                     send_message(chat_id, "No pude acceder a la imagen. Reintenta.")
-
+            
             # 💬 CASO 3: Usuario envía Texto
             elif 'text' in message:
                 user_message = message['text']
-                
-                # Detectar si quiere respuesta en voz (comando /voz)
                 respond_with_voice = "/voz" in user_message.lower()
                 user_message = user_message.replace("/voz", "").replace("/VOZ", "").strip()
                 
-                # Obtener respuesta del Dr. Zambrano
                 ai_response = get_gpt5_response(user_message)
                 
                 if respond_with_voice:
-                    # Responder con audio
                     audio_response = generate_voice_response(ai_response)
                     if audio_response:
                         send_voice(chat_id, audio_response)
                     else:
-                        # Fallback a texto si falla TTS
                         send_message(chat_id, ai_response)
                 else:
-                    # Responder con texto normal
                     send_message(chat_id, ai_response)
-
-            # CIERRE Y ERROR HANDLING
+            
             return {'statusCode': 200, 'body': 'OK'}
         
         except Exception as e:
             print(f"Error en handler: {e}")
             return {'statusCode': 500, 'body': str(e)}
     
-    # Respuesta para GET requests (health check)
     return {'statusCode': 200, 'body': '🏥 Dr. Oscar Zambrano - Pittsburgh Trauma Veterinary Center - ONLINE'}
