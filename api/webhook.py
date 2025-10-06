@@ -170,7 +170,7 @@ def analyze_image_with_gpt5(image_url, user_question):
         "max_tokens": 1500
     }
     try:
-          response = requests.post(GPT5_ENDPOINT, headers=headers, json=payload, timeout=30)
+        response = requests.post(GPT5_ENDPOINT, headers=headers, json=payload, timeout=30)
         response.raise_for_status()
         return response.json()['choices'][0]['message']['content']
     except Exception as e:
@@ -248,7 +248,6 @@ class handler(BaseHTTPRequestHandler):
             message = data['message']
             chat_id = message['chat']['id']
             
-            # Audio
             if 'voice' in message or 'audio' in message:
                 file_id = message.get('voice', {}).get('file_id') or message.get('audio', {}).get('file_id')
                 audio_url = get_telegram_file_url(file_id)
@@ -261,7 +260,6 @@ class handler(BaseHTTPRequestHandler):
                     else:
                         send_message(chat_id, f"🎤 '{transcription}'\n\n{ai_response}")
             
-            # Foto
             elif 'photo' in message:
                 photo = message['photo'][-1]
                 image_url = get_telegram_file_url(photo['file_id'])
@@ -270,7 +268,6 @@ class handler(BaseHTTPRequestHandler):
                     ai_response = analyze_image_with_gpt5(image_url, user_text)
                     send_message(chat_id, f"📸 {ai_response}")
             
-            # Texto
             elif 'text' in message:
                 user_message = message['text']
                 respond_with_voice = "/voz" in user_message.lower()
